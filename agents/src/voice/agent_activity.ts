@@ -65,6 +65,7 @@ import {
   type RecognitionHooks,
   type STTPipeline,
 } from './audio_recognition.js';
+import type { AgentState } from './events.js';
 import {
   AgentSessionEventTypes,
   createErrorEvent,
@@ -152,7 +153,26 @@ interface PreemptiveGeneration {
   createdAt: number;
 }
 
+// Ref: python livekit-agents/livekit/agents/voice/agent_activity.py - 129-134 lines
+// Resume-path bookkeeping for a paused SpeechHandle. The captured agent_state is
+// restored (instead of always "speaking") so resume keeps e.g. "thinking" when the
+// pause happened before any TTS frame reached the transport. `timeout` can be 0
+// for the on-start-of-speech fast pause, which is upgraded by the real
+// false_interruption timeout when VAD confirms active speech.
+// TODO(port-resume-false-interruption): wire through with pause/resume
+// infrastructure (not yet ported from Python). Tracks livekit/agents#5535.
+interface PausedSpeechInfo {
+  handle: SpeechHandle;
+  agentState: AgentState;
+  timeout: number;
+}
+
 // TODO add false interruption handling and barge in handling for https://github.com/livekit/agents/pull/3109/changes
+// Note: livekit/agents#5535 fixes a bug in the Python resume_false_interruption path
+// (pause on start_of_speech while agent is in "thinking"; preserve agent_state on
+// resume). That feature is gated on pause/resume infrastructure that is not yet
+// ported to agents-js — see onStartOfSpeech / interruptByAudioActivity / onEndOfSpeech
+// TODOs below.
 export class AgentActivity implements RecognitionHooks {
   agent: Agent;
   agentSession: AgentSession;
@@ -182,6 +202,12 @@ export class AgentActivity implements RecognitionHooks {
 
   // default to null as None, which maps to the default provider tool choice value
   private toolChoice: ToolChoice | null = null;
+  // Ref: python livekit-agents/livekit/agents/voice/agent_activity.py - 158 line
+  // Scaffolding for resume_false_interruption. Declared here so future porters can
+  // wire pause / resume / false-interruption-timer logic incrementally. Currently
+  // unused — see onStartOfSpeech / interruptByAudioActivity / onEndOfSpeech TODOs.
+  // Tracks livekit/agents#5535.
+  private _pausedSpeech: PausedSpeechInfo | null = null;
   private _preemptiveGeneration?: PreemptiveGeneration;
   private _preemptiveGenerationCount = 0;
   private interruptionDetector?: AdaptiveInterruptionDetector;
@@ -1038,6 +1064,13 @@ export class AgentActivity implements RecognitionHooks {
         this.agentSession._userSpeakingSpan,
       );
     }
+
+    // Ref: python livekit-agents/livekit/agents/voice/agent_activity.py - 1665-1683 lines
+    // TODO(port-resume-false-interruption): when agentSession.agentState !== 'speaking'
+    // and pause is enabled, pause the output with timeout=0 so a brief false-positive VAD
+    // resumes immediately on VAD EOS (upgraded to real timeout by interruptByAudioActivity).
+    // Also cancel any pending false_interruption timer here. Requires pause/resume infra
+    // and PausedSpeechInfo wiring (see interface above). Tracks livekit/agents#5535.
   }
 
   onEndOfSpeech(ev: VADEvent): void {
@@ -1057,6 +1090,11 @@ export class AgentActivity implements RecognitionHooks {
       lastSpeakingTime: speechEndTime,
       otelContext: otelContext.active(),
     });
+
+    // Ref: python livekit-agents/livekit/agents/voice/agent_activity.py - 1707-1708 lines
+    // TODO(port-resume-false-interruption): if a pausedSpeech is recorded, start the
+    // false_interruption resume timer using pausedSpeech.timeout (so the timer respects
+    // timeout=0 from on-start-of-speech pauses). Tracks livekit/agents#5535.
   }
 
   onVADInferenceDone(ev: VADEvent): void {
@@ -1121,6 +1159,13 @@ export class AgentActivity implements RecognitionHooks {
         { 'speech id': this._currentSpeech.id },
         'speech interrupted by audio activity',
       );
+      // Ref: python livekit-agents/livekit/agents/voice/agent_activity.py - 1615-1645 lines
+      // TODO(port-resume-false-interruption): when pauseEnabled() is true, pause the
+      // audio output and record the current speech via updatePausedSpeech(...) with the
+      // real false_interruption_timeout (upgrades any timeout=0 set by onStartOfSpeech).
+      // Emit AgentFalseInterruptionEvent, transition agentState to "listening", and
+      // flush audio_recognition.onEndOfAgentSpeech. Currently we always hard-interrupt.
+      // Tracks livekit/agents#5535.
       this.realtimeSession?.interrupt();
       this._currentSpeech.interrupt();
     }
@@ -1180,10 +1225,16 @@ export class AgentActivity implements RecognitionHooks {
     ) {
       this.interruptByAudioActivity();
 
-      // TODO: resume false interruption - schedule a resume timer if interrupted after end_of_speech
+      // Ref: python livekit-agents/livekit/agents/voice/agent_activity.py - 1800-1807 lines
+      // TODO(port-resume-false-interruption): if speaking === false and a pausedSpeech is
+      // recorded and falseInterruptionTimeout is configured, schedule the resume timer.
+      // Tracks livekit/agents#5535.
     }
 
-    // TODO: resume false interruption - start interrupt paused speech task
+    // Ref: python livekit-agents/livekit/agents/voice/agent_activity.py - 1809-1811 lines
+    // TODO(port-resume-false-interruption): start cancelSpeechPause task to interrupt
+    // the paused speech when the final transcript commits the new user turn.
+    // Tracks livekit/agents#5535.
   }
 
   onPreemptiveGeneration(info: PreemptiveGenerationInfo): void {
