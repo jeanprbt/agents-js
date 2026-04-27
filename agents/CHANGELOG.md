@@ -1,5 +1,11 @@
 # @livekit/agents
 
+## 1.3.1
+
+### Patch Changes
+
+- fix(deps): update dependency uuid to v14 [security] - [#1313](https://github.com/livekit/agents-js/pull/1313) ([@renovate](https://github.com/apps/renovate))
+
 ## 1.3.0
 
 ### Minor Changes

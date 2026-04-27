@@ -1,5 +1,14 @@
 # @livekit/agents-plugin-openai
 
+## 1.3.1
+
+### Patch Changes
+
+- chore(openai): update production models on groq - [#1317](https://github.com/livekit/agents-js/pull/1317) ([@davidzhao](https://github.com/davidzhao))
+
+- Updated dependencies [[`cd60f8f5217acbf1ed7192d2983685f870b24b4b`](https://github.com/livekit/agents-js/commit/cd60f8f5217acbf1ed7192d2983685f870b24b4b)]:
+  - @livekit/agents@1.3.1
+
 ## 1.3.0
 
 ### Patch Changes
